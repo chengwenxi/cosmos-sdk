@@ -9,6 +9,10 @@ type Msg interface {
 
 	// Return the message type.
 	// Must be alphanumeric or empty.
+	Route() string
+
+	// Returns a human-readable string for the message, intended for utilization
+	// within tags
 	Type() string
 
 	// ValidateBasic does a simple validation check that
@@ -28,15 +32,21 @@ type Msg interface {
 
 // Transactions objects must fulfill the Tx
 type Tx interface {
-
-	// Gets the Msg.
+	// Gets the all the transaction's messages.
 	GetMsgs() []Msg
+
+	// ValidateBasic does a simple and lightweight validation check that doesn't
+	// require access to any other information.
+	ValidateBasic() Error
 }
 
 //__________________________________________________________
 
 // TxDecoder unmarshals transaction bytes
 type TxDecoder func(txBytes []byte) (Tx, Error)
+
+// TxEncoder marshals transaction to bytes
+type TxEncoder func(tx Tx) ([]byte, error)
 
 //__________________________________________________________
 
@@ -54,7 +64,8 @@ func NewTestMsg(addrs ...AccAddress) *TestMsg {
 }
 
 //nolint
-func (msg *TestMsg) Type() string { return "TestMsg" }
+func (msg *TestMsg) Route() string { return "TestMsg" }
+func (msg *TestMsg) Type() string  { return "Test message" }
 func (msg *TestMsg) GetSignBytes() []byte {
 	bz, err := json.Marshal(msg.signers)
 	if err != nil {

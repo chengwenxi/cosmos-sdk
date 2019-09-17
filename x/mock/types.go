@@ -1,38 +1,81 @@
 package mock
 
 import (
-	"math/rand"
-	"testing"
+	"github.com/tendermint/tendermint/crypto"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/tendermint/tendermint/crypto"
+
+	"github.com/cosmos/cosmos-sdk/x/auth"
+	"github.com/cosmos/cosmos-sdk/x/supply"
+	"github.com/cosmos/cosmos-sdk/x/supply/exported"
 )
 
-type (
-	// TestAndRunTx produces a fuzzed transaction, and ensures the state
-	// transition was as expected. It returns a descriptive message "action"
-	// about what this fuzzed tx actually did, for ease of debugging.
-	TestAndRunTx func(
-		t *testing.T, r *rand.Rand, app *App, ctx sdk.Context,
-		privKeys []crypto.PrivKey, log string,
-	) (action string, err sdk.Error)
+// DummySupplyKeeper defines a supply keeper used only for testing to avoid
+// circle dependencies
+type DummySupplyKeeper struct {
+	ak auth.AccountKeeper
+}
 
-	// RandSetup performs the random setup the mock module needs.
-	RandSetup func(r *rand.Rand, privKeys []crypto.PrivKey)
+// NewDummySupplyKeeper creates a DummySupplyKeeper instance
+func NewDummySupplyKeeper(ak auth.AccountKeeper) DummySupplyKeeper {
+	return DummySupplyKeeper{ak}
+}
 
-	// An Invariant is a function which tests a particular invariant.
-	// If the invariant has been broken, the function should halt the
-	// test and output the log.
-	Invariant func(t *testing.T, app *App, log string)
-)
+// SendCoinsFromAccountToModule for the dummy supply keeper
+func (sk DummySupplyKeeper) SendCoinsFromAccountToModule(ctx sdk.Context, fromAddr sdk.AccAddress, recipientModule string, amt sdk.Coins) sdk.Error {
 
-// PeriodicInvariant returns an Invariant function closure that asserts
-// a given invariant if the mock application's last block modulo the given
-// period is congruent to the given offset.
-func PeriodicInvariant(invariant Invariant, period int, offset int) Invariant {
-	return func(t *testing.T, app *App, log string) {
-		if int(app.LastBlockHeight())%period == offset {
-			invariant(t, app, log)
+	fromAcc := sk.ak.GetAccount(ctx, fromAddr)
+	moduleAcc := sk.GetModuleAccount(ctx, recipientModule)
+
+	newFromCoins, hasNeg := fromAcc.GetCoins().SafeSub(amt)
+	if hasNeg {
+		return sdk.ErrInsufficientCoins(fromAcc.GetCoins().String())
+	}
+
+	newToCoins := moduleAcc.GetCoins().Add(amt)
+
+	if err := fromAcc.SetCoins(newFromCoins); err != nil {
+		return sdk.ErrInternal(err.Error())
+	}
+
+	if err := moduleAcc.SetCoins(newToCoins); err != nil {
+		return sdk.ErrInternal(err.Error())
+	}
+
+	sk.ak.SetAccount(ctx, fromAcc)
+	sk.ak.SetAccount(ctx, moduleAcc)
+
+	return nil
+}
+
+// GetModuleAccount for dummy supply keeper
+func (sk DummySupplyKeeper) GetModuleAccount(ctx sdk.Context, moduleName string) exported.ModuleAccountI {
+	addr := sk.GetModuleAddress(moduleName)
+
+	acc := sk.ak.GetAccount(ctx, addr)
+	if acc != nil {
+		macc, ok := acc.(exported.ModuleAccountI)
+		if ok {
+			return macc
 		}
 	}
+
+	moduleAddress := sk.GetModuleAddress(moduleName)
+	baseAcc := auth.NewBaseAccountWithAddress(moduleAddress)
+
+	// create a new module account
+	macc := &supply.ModuleAccount{
+		BaseAccount: &baseAcc,
+		Name:        moduleName,
+		Permissions: nil,
+	}
+
+	maccI := (sk.ak.NewAccount(ctx, macc)).(exported.ModuleAccountI)
+	sk.ak.SetAccount(ctx, maccI)
+	return maccI
+}
+
+// GetModuleAddress for dummy supply keeper
+func (sk DummySupplyKeeper) GetModuleAddress(moduleName string) sdk.AccAddress {
+	return sdk.AccAddress(crypto.AddressHash([]byte(moduleName)))
 }

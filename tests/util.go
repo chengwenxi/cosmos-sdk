@@ -4,12 +4,18 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"os"
+	"strings"
+	"testing"
 	"time"
 
-	amino "github.com/tendermint/go-amino"
+	"github.com/stretchr/testify/require"
+
 	tmclient "github.com/tendermint/tendermint/rpc/client"
 	ctypes "github.com/tendermint/tendermint/rpc/core/types"
 	rpcclient "github.com/tendermint/tendermint/rpc/lib/client"
+
+	"github.com/cosmos/cosmos-sdk/codec"
 )
 
 // Wait for the next tendermint block from the Tendermint RPC
@@ -62,10 +68,10 @@ func waitForHeightTM(height int64, url string) {
 			panic(err)
 		}
 
-		if resBlock.Block != nil &&
-			resBlock.Block.Height >= height {
+		if resBlock.Block != nil && resBlock.Block.Height >= height {
 			return
 		}
+
 		time.Sleep(time.Millisecond * 100)
 	}
 }
@@ -90,8 +96,10 @@ func StatusOK(statusCode int) bool {
 func waitForHeight(height int64, url string) {
 	var res *http.Response
 	var err error
+
 	for {
-		res, err = http.Get(url)
+		// Since this is in a testing file we are accepting nolint to be passed
+		res, err = http.Get(url) //nolint:gosec
 		if err != nil {
 			panic(err)
 		}
@@ -100,23 +108,20 @@ func waitForHeight(height int64, url string) {
 		if err != nil {
 			panic(err)
 		}
-		err = res.Body.Close()
-		if err != nil {
+
+		if err = res.Body.Close(); err != nil {
 			panic(err)
 		}
 
 		var resultBlock ctypes.ResultBlock
-		err = cdc.UnmarshalJSON(body, &resultBlock)
-		if err != nil {
-			fmt.Println("RES", res)
-			fmt.Println("BODY", string(body))
+		if err = cdc.UnmarshalJSON(body, &resultBlock); err != nil {
 			panic(err)
 		}
 
-		if resultBlock.Block != nil &&
-			resultBlock.Block.Height >= height {
+		if resultBlock.Block != nil && resultBlock.Block.Height >= height {
 			return
 		}
+
 		time.Sleep(time.Millisecond * 100)
 	}
 }
@@ -134,7 +139,7 @@ func WaitForTMStart(port string) {
 }
 
 // WaitForStart waits for the node to start by pinging the url
-// every 100ms for 5s until it returns 200. If it takes longer than 5s,
+// every 100ms for 10s until it returns 200. If it takes longer than 5s,
 // it panics.
 func WaitForStart(url string) {
 	var err error
@@ -142,11 +147,11 @@ func WaitForStart(url string) {
 	// ping the status endpoint a few times a second
 	// for a few seconds until we get a good response.
 	// otherwise something probably went wrong
-	for i := 0; i < 50; i++ {
+	for i := 0; i < 100; i++ {
 		time.Sleep(time.Millisecond * 100)
 
 		var res *http.Response
-		res, err = http.Get(url)
+		res, err = http.Get(url) //nolint:gosec Error is arising in testing files, accepting nolint
 		if err != nil || res == nil {
 			continue
 		}
@@ -185,8 +190,30 @@ func WaitForRPC(laddr string) {
 	}
 }
 
-var cdc = amino.NewCodec()
+// ExtractPortFromAddress extract port from listenAddress
+// The listenAddress must be some strings like tcp://0.0.0.0:12345
+func ExtractPortFromAddress(listenAddress string) string {
+	stringList := strings.Split(listenAddress, ":")
+	length := len(stringList)
+	if length != 3 {
+		panic(fmt.Errorf("expected listen address: tcp://0.0.0.0:12345, got %s", listenAddress))
+	}
+	return stringList[2]
+}
+
+// NewTestCaseDir creates a new temporary directory for a test case.
+// Returns the directory path and a cleanup function.
+// nolint: errcheck
+func NewTestCaseDir(t *testing.T) (string, func()) {
+	dir, err := ioutil.TempDir("", t.Name()+"_")
+	require.NoError(t, err)
+	return dir, func() { os.RemoveAll(dir) }
+}
+
+var cdc = codec.New()
 
 func init() {
 	ctypes.RegisterAmino(cdc)
 }
+
+//DONTCOVER

@@ -3,36 +3,50 @@ package cli
 import (
 	"github.com/spf13/cobra"
 
+	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/context"
+	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/wire"
-	authcmd "github.com/cosmos/cosmos-sdk/x/auth/client/cli"
-	"github.com/cosmos/cosmos-sdk/x/slashing"
+	"github.com/cosmos/cosmos-sdk/x/auth"
+	"github.com/cosmos/cosmos-sdk/x/auth/client/utils"
+	"github.com/cosmos/cosmos-sdk/x/slashing/internal/types"
 )
 
-// create unrevoke command
-func GetCmdUnrevoke(cdc *wire.Codec) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "unrevoke",
-		Args:  cobra.ExactArgs(1),
-		Short: "unrevoke validator previously revoked for downtime",
+// GetTxCmd returns the transaction commands for this module
+func GetTxCmd(cdc *codec.Codec) *cobra.Command {
+	slashingTxCmd := &cobra.Command{
+		Use:                        types.ModuleName,
+		Short:                      "Slashing transactions subcommands",
+		DisableFlagParsing:         true,
+		SuggestionsMinimumDistance: 2,
+		RunE:                       client.ValidateCmd,
+	}
+
+	slashingTxCmd.AddCommand(client.PostCommands(
+		GetCmdUnjail(cdc),
+	)...)
+
+	return slashingTxCmd
+}
+
+// GetCmdUnjail implements the create unjail validator command.
+func GetCmdUnjail(cdc *codec.Codec) *cobra.Command {
+	return &cobra.Command{
+		Use:   "unjail",
+		Args:  cobra.NoArgs,
+		Short: "unjail validator previously jailed for downtime",
+		Long: `unjail a jailed validator:
+
+$ <appcli> tx slashing unjail --from mykey
+`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := context.NewCoreContextFromViper().WithDecoder(authcmd.GetAccountDecoder(cdc))
+			txBldr := auth.NewTxBuilderFromCLI().WithTxEncoder(utils.GetTxEncoder(cdc))
+			cliCtx := context.NewCLIContext().WithCodec(cdc)
 
-			validatorAddr, err := sdk.AccAddressFromBech32(args[0])
-			if err != nil {
-				return err
-			}
+			valAddr := cliCtx.GetFromAddress()
 
-			msg := slashing.NewMsgUnrevoke(validatorAddr)
-
-			// build and sign the transaction, then broadcast to Tendermint
-			err = ctx.EnsureSignBuildBroadcast(ctx.FromAddressName, []sdk.Msg{msg}, cdc)
-			if err != nil {
-				return err
-			}
-			return nil
+			msg := types.NewMsgUnjail(sdk.ValAddress(valAddr))
+			return utils.GenerateOrBroadcastMsgs(cliCtx, txBldr, []sdk.Msg{msg})
 		},
 	}
-	return cmd
 }

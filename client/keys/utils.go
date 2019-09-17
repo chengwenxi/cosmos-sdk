@@ -1,126 +1,173 @@
 package keys
 
 import (
+	"bufio"
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/spf13/viper"
-
-	keys "github.com/cosmos/cosmos-sdk/crypto/keys"
 	"github.com/tendermint/tendermint/libs/cli"
-	dbm "github.com/tendermint/tendermint/libs/db"
+	yaml "gopkg.in/yaml.v2"
 
-	"github.com/cosmos/cosmos-sdk/client"
-
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/client/flags"
+	"github.com/cosmos/cosmos-sdk/client/input"
+	"github.com/cosmos/cosmos-sdk/crypto/keys"
 )
 
-// KeyDBName is the directory under root where we store the keys
-const KeyDBName = "keys"
+// available output formats.
+const (
+	OutputFormatText = "text"
+	OutputFormatJSON = "json"
 
-// keybase is used to make GetKeyBase a singleton
-var keybase keys.Keybase
+	// defaultKeyDBName is the client's subdirectory where keys are stored.
+	defaultKeyDBName = "keys"
+)
 
-// TODO make keybase take a database not load from the directory
+type bechKeyOutFn func(keyInfo keys.Info) (keys.KeyOutput, error)
 
-// initialize a keybase based on the configuration
-func GetKeyBase() (keys.Keybase, error) {
-	rootDir := viper.GetString(cli.HomeFlag)
-	return GetKeyBaseFromDir(rootDir)
-}
-
-// initialize a keybase based on the configuration
-func GetKeyBaseFromDir(rootDir string) (keys.Keybase, error) {
-	if keybase == nil {
-		db, err := dbm.NewGoLevelDB(KeyDBName, filepath.Join(rootDir, "keys"))
-		if err != nil {
-			return nil, err
-		}
-		keybase = client.GetKeyBase(db)
-	}
-	return keybase, nil
-}
-
-// used to set the keybase manually in test
-func SetKeyBase(kb keys.Keybase) {
-	keybase = kb
-}
-
-// used for outputting keys.Info over REST
-type KeyOutput struct {
-	Name    string         `json:"name"`
-	Type    string         `json:"type"`
-	Address sdk.AccAddress `json:"address"`
-	PubKey  string         `json:"pub_key"`
-	Seed    string         `json:"seed,omitempty"`
-}
-
-// create a list of KeyOutput in bech32 format
-func Bech32KeysOutput(infos []keys.Info) ([]KeyOutput, error) {
-	kos := make([]KeyOutput, len(infos))
-	for i, info := range infos {
-		ko, err := Bech32KeyOutput(info)
-		if err != nil {
-			return nil, err
-		}
-		kos[i] = ko
-	}
-	return kos, nil
-}
-
-// create a KeyOutput in bech32 format
-func Bech32KeyOutput(info keys.Info) (KeyOutput, error) {
-	account := sdk.AccAddress(info.GetPubKey().Address().Bytes())
-	bechPubKey, err := sdk.Bech32ifyAccPub(info.GetPubKey())
+// GetKeyInfo returns key info for a given name. An error is returned if the
+// keybase cannot be retrieved or getting the info fails.
+func GetKeyInfo(name string) (keys.Info, error) {
+	keybase, err := NewKeyBaseFromHomeFlag()
 	if err != nil {
-		return KeyOutput{}, err
+		return nil, err
 	}
-	return KeyOutput{
-		Name:    info.GetName(),
-		Type:    info.GetType(),
-		Address: account,
-		PubKey:  bechPubKey,
-	}, nil
+
+	return keybase.Get(name)
 }
 
-func printInfo(info keys.Info) {
-	ko, err := Bech32KeyOutput(info)
+// GetPassphrase returns a passphrase for a given name. It will first retrieve
+// the key info for that name if the type is local, it'll fetch input from
+// STDIN. Otherwise, an empty passphrase is returned. An error is returned if
+// the key info cannot be fetched or reading from STDIN fails.
+func GetPassphrase(name string) (string, error) {
+	var passphrase string
+
+	keyInfo, err := GetKeyInfo(name)
+	if err != nil {
+		return passphrase, err
+	}
+
+	// we only need a passphrase for locally stored keys
+	// TODO: (ref: #864) address security concerns
+	if keyInfo.GetType() == keys.TypeLocal {
+		passphrase, err = ReadPassphraseFromStdin(name)
+		if err != nil {
+			return passphrase, err
+		}
+	}
+
+	return passphrase, nil
+}
+
+// ReadPassphraseFromStdin attempts to read a passphrase from STDIN return an
+// error upon failure.
+func ReadPassphraseFromStdin(name string) (string, error) {
+	buf := bufio.NewReader(os.Stdin)
+	prompt := fmt.Sprintf("Password to sign with '%s':", name)
+
+	passphrase, err := input.GetPassword(prompt, buf)
+	if err != nil {
+		return passphrase, fmt.Errorf("error reading passphrase: %v", err)
+	}
+
+	return passphrase, nil
+}
+
+// NewKeyBaseFromHomeFlag initializes a Keybase based on the configuration.
+func NewKeyBaseFromHomeFlag() (keys.Keybase, error) {
+	rootDir := viper.GetString(flags.FlagHome)
+	return NewKeyBaseFromDir(rootDir)
+}
+
+// NewKeyBaseFromDir initializes a keybase at a particular dir.
+func NewKeyBaseFromDir(rootDir string) (keys.Keybase, error) {
+	return getLazyKeyBaseFromDir(rootDir)
+}
+
+// NewInMemoryKeyBase returns a storage-less keybase.
+func NewInMemoryKeyBase() keys.Keybase { return keys.NewInMemory() }
+
+func getLazyKeyBaseFromDir(rootDir string) (keys.Keybase, error) {
+	return keys.New(defaultKeyDBName, filepath.Join(rootDir, "keys")), nil
+}
+
+func printKeyInfo(keyInfo keys.Info, bechKeyOut bechKeyOutFn) {
+	ko, err := bechKeyOut(keyInfo)
 	if err != nil {
 		panic(err)
 	}
+
 	switch viper.Get(cli.OutputFlag) {
-	case "text":
-		fmt.Printf("NAME:\tTYPE:\tADDRESS:\t\t\t\t\t\tPUBKEY:\n")
-		printKeyOutput(ko)
-	case "json":
-		out, err := MarshalJSON(ko)
+	case OutputFormatText:
+		printTextInfos([]keys.KeyOutput{ko})
+
+	case OutputFormatJSON:
+		var out []byte
+		var err error
+		if viper.GetBool(flags.FlagIndentResponse) {
+			out, err = cdc.MarshalJSONIndent(ko, "", "  ")
+		} else {
+			out, err = cdc.MarshalJSON(ko)
+		}
 		if err != nil {
 			panic(err)
 		}
+
 		fmt.Println(string(out))
 	}
 }
 
 func printInfos(infos []keys.Info) {
-	kos, err := Bech32KeysOutput(infos)
+	kos, err := keys.Bech32KeysOutput(infos)
 	if err != nil {
 		panic(err)
 	}
+
 	switch viper.Get(cli.OutputFlag) {
-	case "text":
-		fmt.Printf("NAME:\tTYPE:\tADDRESS:\t\t\t\t\t\tPUBKEY:\n")
-		for _, ko := range kos {
-			printKeyOutput(ko)
+	case OutputFormatText:
+		printTextInfos(kos)
+
+	case OutputFormatJSON:
+		var out []byte
+		var err error
+
+		if viper.GetBool(flags.FlagIndentResponse) {
+			out, err = cdc.MarshalJSONIndent(kos, "", "  ")
+		} else {
+			out, err = cdc.MarshalJSON(kos)
 		}
-	case "json":
-		out, err := MarshalJSON(kos)
+
 		if err != nil {
 			panic(err)
 		}
-		fmt.Println(string(out))
+		fmt.Printf("%s", out)
 	}
 }
 
-func printKeyOutput(ko KeyOutput) {
-	fmt.Printf("%s\t%s\t%s\t%s\n", ko.Name, ko.Type, ko.Address, ko.PubKey)
+func printTextInfos(kos []keys.KeyOutput) {
+	out, err := yaml.Marshal(&kos)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(string(out))
+}
+
+func printKeyAddress(info keys.Info, bechKeyOut bechKeyOutFn) {
+	ko, err := bechKeyOut(info)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println(ko.Address)
+}
+
+func printPubKey(info keys.Info, bechKeyOut bechKeyOutFn) {
+	ko, err := bechKeyOut(info)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println(ko.PubKey)
 }

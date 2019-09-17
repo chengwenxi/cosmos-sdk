@@ -1,9 +1,38 @@
-# Welcome to the Cosmos Docs!
+# Cosmos SDK Documentation
 
-![cosmonaut reading the cosmos docs in space](./graphics/cosmos-docs.jpg)
+## Get Started
 
-Cosmos is a decentralized network of independent parallel blockchains, each powered by classical BFT consensus algorithms like Tendermint.
+- **[SDK Intro](./intro/intro.md)**: High-level overview of the Cosmos SDK.
+- **[SDK application tutorial](https://github.com/cosmos/sdk-application-tutorial)**: A tutorial to learn the SDK. It showcases how to build an SDK-based blockchain from scratch, and explains the basic principles of the SDK in the process.
 
-The first blockchain in the Cosmos Network is the Cosmos Hub, whose native token is the Atom. Cosmos is a permission-less network, meaning that anybody can build a blockchain on it.
+## Resources
 
-Cosmos can interoperate with multiple other applications and cryptocurrencies. By creating a new zone, you can plug any blockchain system into the Cosmos hub and pass tokens back and forth between those zones, without the need for an intermediary.
+- [Specifications](./spec/README.md): Specifications of modules and other parts of the Cosmos SDK.
+- [SDK API Reference](https://godoc.org/github.com/cosmos/cosmos-sdk): Godocs of the Cosmos SDK.
+- [REST API spec](https://cosmos.network/rpc/): List of endpoints to interact with a `gaia` full-node through REST.
+
+## Creating a new SDK project
+
+To create a new project, you can either:
+
+- Fork [this repo](https://github.com/cosmos/sdk-application-tutorial/). Do not forget to remove the `nameservice` module from the various files if you don't need it.
+- Use community tools like [chainkit](https://github.com/blocklayerhq/chainkit).
+
+## Cosmos Hub
+
+The Cosmos Hub (`gaia`) docs have moved [here](https://github.com/cosmos/gaia/tree/master/docs).
+
+## Languages
+
+The Cosmos-SDK is currently written in [Golang](https://golang.org/), though the
+framework could be implemented similarly in other languages.
+Contact us for information about funding an implementation in another language.
+
+## Contribute
+
+See [this file](https://github.com/cosmos/cosmos-sdk/blob/master/docs/DOCS_README.md) for details of the build process and
+considerations when making changes.
+
+## Version
+
+This documentation is built from the following commit:

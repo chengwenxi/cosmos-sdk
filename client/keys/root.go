@@ -1,9 +1,9 @@
 package keys
 
 import (
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/gorilla/mux"
 	"github.com/spf13/cobra"
+
+	"github.com/cosmos/cosmos-sdk/client/flags"
 )
 
 // Commands registers a sub-tree of commands to interact with
@@ -19,22 +19,16 @@ func Commands() *cobra.Command {
     needs to sign with a private key.`,
 	}
 	cmd.AddCommand(
+		mnemonicKeyCommand(),
 		addKeyCommand(),
-		listKeysCmd,
-		showKeysCmd,
-		client.LineBreak,
+		exportKeyCommand(),
+		importKeyCommand(),
+		listKeysCmd(),
+		showKeysCmd(),
+		flags.LineBreak,
 		deleteKeyCommand(),
 		updateKeyCommand(),
+		parseKeyStringCommand(),
 	)
 	return cmd
-}
-
-// resgister REST routes
-func RegisterRoutes(r *mux.Router) {
-	r.HandleFunc("/keys", QueryKeysRequestHandler).Methods("GET")
-	r.HandleFunc("/keys", AddNewKeyRequestHandler).Methods("POST")
-	r.HandleFunc("/keys/seed", SeedRequestHandler).Methods("GET")
-	r.HandleFunc("/keys/{name}", GetKeyRequestHandler).Methods("GET")
-	r.HandleFunc("/keys/{name}", UpdateKeyRequestHandler).Methods("PUT")
-	r.HandleFunc("/keys/{name}", DeleteKeyRequestHandler).Methods("DELETE")
 }

@@ -1,0 +1,21 @@
+run:
+  deadline: 1m
+
+linters:
+  enable-all: true
+  disable:
+    - gocyclo
+    - gochecknoinits
+    - golint
+    - gochecknoglobals
+    - dupl
+    - interfacer
+    - gosec
+    - unparam
+    - lll
+    - maligned
+    - nakedret
+    - errcheck
+    - scopelint
+    - prealloc
+    - varcheck
