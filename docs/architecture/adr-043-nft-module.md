@@ -10,11 +10,11 @@ DRAFT
 
 ## Abstract
 
-This ADR defines the `x/nft` module which as a generic implementation of the NFT API, roughly "compatible" with ERC721.
+This ADR defines the `x/nft` module as a generic implementation of the NFT standard API, with some enhancements.
 
 ## Context
 
-NFTs are more digital assets than only crypto arts, which is very helpful for accruing value to cosmos . As a result, Cosmos Hub should implement NFT functions and enable a unified mechanism for storing and sending the ownership representative of NFTs as discussed in https://github.com/cosmos/cosmos-sdk/discussions/9065.
+NFTs are more digital assets than only crypto arts, which is very helpful for accruing value to the Cosmos ecosystem. As a result, cosmos-sdk should implement NFT functions and enable a unified mechanism for storing and sending the ownership representative of NFTs as discussed in https://github.com/cosmos/cosmos-sdk/discussions/9065.
 
 As was discussed in [#9065](https://github.com/cosmos/cosmos-sdk/discussions/9065), several potential solutions can be considered:
 
@@ -55,10 +55,10 @@ message Metadata {
 }
 ```
 
-- The `type` is the identifier of the NFT type/class.
-- The `name` is a descriptive name of this NFT type.
-- The `symbol` is the symbol usually shown on exchanges for this NFT type.
-- The `description` is a detailed description of this NFT type.
+- The `denom` is the unique key of one NFT class, like the address of an erc721 contract on Ethereum.
+- The `symbol` is an abbreviated name of one NFT class.
+- The `name` is a descriptive name of one NFT class.
+- The `description` is a detailed description of one NFT class, which extends the function of erc721.
 
 #### NFT
 
@@ -83,7 +83,7 @@ The NFT conforms to the following specifications:
   {type}/{id} --> NFT (bytes)
   ```
 
-- The `uri` points to an immutable off-chain resource containing more attributes about his NFT.
+- The `uri` is the off-chain storage address of NFT attribute `data`, such as IPFS, etc.
 
 - The `data` is mutable field and allows attaching special information to the NFT, for example:
 
@@ -137,11 +137,11 @@ message MsgBurnResponse {}
 
 `MsgIssue` is responsible for issuing an nft classification, just like deploying an erc721 contract on Ethereum.
 
-`MsgMint` provides the ability to create a new nft.
+`MsgMint` provides the ability to create a new NFT.
 
 `MsgSend` is responsible for transferring the ownership of an NFT to another address (no coins involved).
 
-`MsgBurn` provides the ability to destroy nft, thereby guaranteeing the uniqueness of cross-chain nft.
+`MsgBurn` provides the ability to destroy NFT, thereby guaranteeing the uniqueness of cross-chain NFT.
 
 Other business-logic implementations should be defined in other upper-level modules that import this NFT module. The implementation example of the server is as follows:
 
@@ -163,9 +163,9 @@ func (m msgServer) Issue(ctx context.Context, msg *types.MsgIssue) (*types.MsgIs
 func (m msgServer) Mint(ctx context.Context, msg *types.MsgMint) (*types.MsgMintResponse, error){
   m.keeper.AssertTypeExist(msg.NFT.Type)
 
-  metadata := m.keeper.GetMetadata(ctx, msg.NFT.Type)
-  
-  baseDenom := fmt.Sprintf("%s-%s", msg.NFT.Type, msg.NFT.Id)
+  metadata := m.keeper.GetMetadata(ctx, msg.NFT.Denom)
+  // NOTE: use denom manager or DID
+  baseDenom := fmt.Sprintf("nft/%s/%s", msg.NFT.Denom, msg.NFT.Id)
   bkMetadata := bankTypes.Metadata{
     Symbol:      metadata.Symbol,
     Base:        baseDenom,
@@ -210,7 +210,7 @@ func (m Keeper) Burn(ctx sdk.Context, msg *types.MsgBurn) (types.MsgBurnResponse
   m.keeper.bank.BurnCoins(ctx, types.ModuleName, coins)
 
   // Delete bank.Metadata (keeper method not available)
-  
+  typeStore := m.keeper.getTypeStore(ctx, msg.NFT.Type)
   typeStore.Delete(msg.Id)
   
   return &types.MsgBurnResponse{}, nil
